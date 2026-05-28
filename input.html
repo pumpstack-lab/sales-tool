@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>売上入力</title>
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', 'Yu Gothic', sans-serif;
+      background: #f0f7f3;
+      min-height: 100vh;
+      padding-bottom: 40px;
+    }
+    .page-header {
+      background: #27ae60;
+      color: white;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .page-header a { color: white; text-decoration: none; font-size: 26px; line-height: 1; }
+    .page-header h1 { font-size: 17px; font-weight: bold; }
+
+    .content { padding: 16px; max-width: 480px; margin: 0 auto; }
+
+    .card {
+      background: white;
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    }
+    .card-title {
+      font-size: 12px; color: #8a9a8a; font-weight: bold;
+      margin-bottom: 14px; letter-spacing: 0.5px;
+    }
+
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label {
+      display: block; font-size: 13px; font-weight: bold;
+      color: #3a4a3a; margin-bottom: 6px;
+    }
+    .field label .req {
+      color: #e74c3c; font-size: 11px; margin-left: 4px;
+    }
+    .field label .opt {
+      color: #aaa; font-size: 11px; margin-left: 4px; font-weight: normal;
+    }
+    .field input[type="date"],
+    .field input[type="number"],
+    .field textarea {
+      width: 100%; padding: 12px 14px;
+      border: 1.5px solid #d8e8d8; border-radius: 10px;
+      font-size: 15px; font-family: inherit;
+      color: #1a2a1a; background: #fafffe;
+      appearance: none; -webkit-appearance: none;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .field input:focus, .field textarea:focus {
+      border-color: #27ae60;
+    }
+    .field input[type="number"] { font-size: 20px; font-weight: bold; }
+    .field textarea { resize: none; height: 72px; font-size: 14px; }
+
+    .amount-wrap { position: relative; }
+    .amount-wrap input { padding-left: 32px; }
+    .amount-yen {
+      position: absolute; left: 14px; top: 50%;
+      transform: translateY(-50%);
+      font-size: 18px; font-weight: bold; color: #27ae60;
+    }
+
+    .split-row { display: flex; gap: 8px; }
+    .split-row .field { flex: 1; }
+
+    .detail-toggle {
+      width: 100%; padding: 12px;
+      background: none; border: 1.5px solid #d8e8d8;
+      border-radius: 10px; font-size: 13px; color: #6a8a6a;
+      font-family: inherit; cursor: pointer; font-weight: bold;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .detail-toggle .arrow { transition: transform 0.2s; }
+    .detail-toggle.open .arrow { transform: rotate(180deg); }
+    .detail-section { display: none; margin-top: 14px; }
+    .detail-section.open { display: block; }
+
+    .hint { font-size: 11px; color: #aaa; margin-top: 5px; }
+
+    .tax-hint {
+      font-size: 11px; color: #7a9a7a; background: #f0faf4;
+      padding: 8px 12px; border-radius: 8px; margin-top: 8px;
+      line-height: 1.6;
+    }
+
+    .btn-save {
+      width: 100%; padding: 16px;
+      background: #27ae60; color: white; border: none;
+      border-radius: 14px; font-size: 17px; font-weight: bold;
+      font-family: inherit; cursor: pointer;
+      box-shadow: 0 4px 12px rgba(39,174,96,0.3);
+      margin-top: 4px;
+    }
+    .btn-save:disabled { background: #aaa; box-shadow: none; cursor: default; }
+
+    .toast {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: #1e8449; color: white; padding: 12px 24px;
+      border-radius: 30px; font-size: 14px; font-weight: bold;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      opacity: 0; transition: opacity 0.3s; white-space: nowrap;
+      z-index: 200;
+    }
+    .toast.show { opacity: 1; }
+
+    .existing-banner {
+      background: #e8f8ee; border-radius: 10px;
+      padding: 10px 14px; font-size: 13px; color: #1e8449;
+      margin-bottom: 14px; font-weight: bold;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <a href="index.html">←</a>
+    <h1>売上を記録する</h1>
+  </div>
+
+  <div class="content">
+    <div id="existing-banner" class="existing-banner">この日の記録は既に保存されています。上書きします。</div>
+
+    <div class="card">
+      <div class="card-title">基本情報</div>
+
+      <div class="field">
+        <label>日付 <span class="req">必須</span></label>
+        <input type="date" id="sale-date">
+      </div>
+
+      <div class="field">
+        <label>売上合計（税込）<span class="req">必須</span></label>
+        <div class="amount-wrap">
+          <span class="amount-yen">¥</span>
+          <input type="number" id="total" placeholder="0" min="0" inputmode="numeric">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>客数 <span class="opt">任意</span></label>
+        <input type="number" id="customers" placeholder="0" min="0" inputmode="numeric">
+      </div>
+
+      <div class="field">
+        <label>メモ <span class="opt">任意</span></label>
+        <textarea id="memo" placeholder="特記事項・天気・イベントなど"></textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="detail-toggle" id="toggle-payment" onclick="toggleSection('payment')">
+        <span>💳 支払い方法の内訳</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="detail-section" id="section-payment">
+        <div class="split-row">
+          <div class="field">
+            <label>現金</label>
+            <div class="amount-wrap">
+              <span class="amount-yen" style="font-size:15px">¥</span>
+              <input type="number" id="cash" placeholder="0" min="0" inputmode="numeric" style="font-size:15px;padding-left:28px">
+            </div>
+          </div>
+          <div class="field">
+            <label>カード</label>
+            <div class="amount-wrap">
+              <span class="amount-yen" style="font-size:15px">¥</span>
+              <input type="number" id="card" placeholder="0" min="0" inputmode="numeric" style="font-size:15px;padding-left:28px">
+            </div>
+          </div>
+          <div class="field">
+            <label>QR/電子マネー</label>
+            <div class="amount-wrap">
+              <span class="amount-yen" style="font-size:15px">¥</span>
+              <input type="number" id="qr" placeholder="0" min="0" inputmode="numeric" style="font-size:15px;padding-left:28px">
+            </div>
+          </div>
+        </div>
+        <div class="hint">合計と一致させる必要はありません。記録用の参考値としてご利用ください。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="detail-toggle" id="toggle-tax" onclick="toggleSection('tax')">
+        <span>🧾 消費税区分の内訳</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="detail-section" id="section-tax">
+        <div class="split-row">
+          <div class="field">
+            <label>店内飲食（10%）</label>
+            <div class="amount-wrap">
+              <span class="amount-yen" style="font-size:15px">¥</span>
+              <input type="number" id="sales10" placeholder="0" min="0" inputmode="numeric" style="font-size:15px;padding-left:28px">
+            </div>
+          </div>
+          <div class="field">
+            <label>テイクアウト（8%）</label>
+            <div class="amount-wrap">
+              <span class="amount-yen" style="font-size:15px">¥</span>
+              <input type="number" id="sales8" placeholder="0" min="0" inputmode="numeric" style="font-size:15px;padding-left:28px">
+            </div>
+          </div>
+        </div>
+        <div class="tax-hint">
+          税理士への提出に使います。<br>
+          店内飲食は10%・テイクアウトは8%（軽減税率）です。<br>
+          合計と一致しなくても保存できます。
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-save" id="btn-save" onclick="save()">保存する</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const { createClient } = supabase;
+    const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const today = new Date().toISOString().split('T')[0];
+    const dateEl = document.getElementById('sale-date');
+    dateEl.value = today;
+    dateEl.addEventListener('change', checkExisting);
+
+    function toggleSection(key) {
+      const btn = document.getElementById(`toggle-${key}`);
+      const sec = document.getElementById(`section-${key}`);
+      btn.classList.toggle('open');
+      sec.classList.toggle('open');
+    }
+
+    function showToast(msg, duration = 2000) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), duration);
+    }
+
+    function val(id) { return parseInt(document.getElementById(id).value) || 0; }
+
+    async function checkExisting() {
+      const date = dateEl.value;
+      if (!date) return;
+      const { data } = await db.from('sales')
+        .select('*')
+        .eq('store_name', STORE_NAME)
+        .eq('sale_date', date)
+        .maybeSingle();
+
+      const banner = document.getElementById('existing-banner');
+      if (data) {
+        banner.style.display = 'block';
+        document.getElementById('total').value = data.total_taxin || '';
+        document.getElementById('customers').value = data.customers || '';
+        document.getElementById('memo').value = data.memo || '';
+        document.getElementById('cash').value = data.cash || '';
+        document.getElementById('card').value = data.card || '';
+        document.getElementById('qr').value = data.qr || '';
+        document.getElementById('sales10').value = data.sales_10 || '';
+        document.getElementById('sales8').value = data.sales_8 || '';
+        document.getElementById('btn-save').textContent = '更新する';
+      } else {
+        banner.style.display = 'none';
+        document.getElementById('total').value = '';
+        document.getElementById('customers').value = '';
+        document.getElementById('memo').value = '';
+        document.getElementById('cash').value = '';
+        document.getElementById('card').value = '';
+        document.getElementById('qr').value = '';
+        document.getElementById('sales10').value = '';
+        document.getElementById('sales8').value = '';
+        document.getElementById('btn-save').textContent = '保存する';
+      }
+    }
+
+    async function save() {
+      const total = val('total');
+      if (!total) { showToast('売上合計を入力してください'); return; }
+      const date = dateEl.value;
+      if (!date) { showToast('日付を選択してください'); return; }
+
+      const btn = document.getElementById('btn-save');
+      btn.disabled = true;
+      btn.textContent = '保存中...';
+
+      const { error } = await db.from('sales').upsert({
+        sale_date: date,
+        store_name: STORE_NAME,
+        total_taxin: total,
+        cash: val('cash'),
+        card: val('card'),
+        qr: val('qr'),
+        sales_10: val('sales10'),
+        sales_8: val('sales8'),
+        customers: val('customers'),
+        memo: document.getElementById('memo').value.trim(),
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'sale_date,store_name' });
+
+      if (error) {
+        showToast('保存に失敗しました: ' + error.message, 3000);
+        btn.disabled = false;
+        btn.textContent = '保存する';
+        return;
+      }
+
+      showToast('保存しました ✓');
+      setTimeout(() => { window.location.href = 'index.html'; }, 1200);
+    }
+
+    checkExisting();
+  </script>
+</body>
+</html>
