@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>売上履歴</title>
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', 'Yu Gothic', sans-serif;
+      background: #f0f7f3;
+      min-height: 100vh;
+      padding-bottom: 40px;
+    }
+    .page-header {
+      background: #27ae60;
+      color: white;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .page-header a { color: white; text-decoration: none; font-size: 26px; line-height: 1; }
+    .page-header h1 { font-size: 17px; font-weight: bold; }
+
+    .month-nav {
+      background: white;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 52px;
+      z-index: 90;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .month-nav button {
+      background: none; border: none; font-size: 22px;
+      cursor: pointer; color: #27ae60; padding: 4px 10px;
+    }
+    .month-nav .month-display { font-size: 16px; font-weight: bold; color: #1a2a1a; }
+
+    .content { padding: 16px; max-width: 480px; margin: 0 auto; }
+
+    .summary-card {
+      background: linear-gradient(135deg, #27ae60, #1e8449);
+      color: white;
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 14px;
+      box-shadow: 0 4px 12px rgba(39,174,96,0.3);
+    }
+    .summary-card .s-label { font-size: 12px; opacity: 0.8; margin-bottom: 4px; }
+    .summary-card .s-amount { font-size: 30px; font-weight: bold; }
+    .summary-card .s-amount .unit { font-size: 16px; font-weight: normal; }
+    .summary-card .s-meta { font-size: 12px; opacity: 0.75; margin-top: 6px; }
+
+    .summary-sub { display: flex; gap: 10px; margin-top: 10px; }
+    .summary-sub .s-item { flex: 1; background: rgba(255,255,255,0.15); border-radius: 8px; padding: 8px 10px; }
+    .summary-sub .s-item .sv { font-size: 16px; font-weight: bold; }
+    .summary-sub .s-item .sl { font-size: 10px; opacity: 0.8; margin-top: 2px; }
+
+    .btn-csv {
+      width: 100%; padding: 12px;
+      background: white; color: #27ae60;
+      border: 2px solid #27ae60; border-radius: 12px;
+      font-size: 14px; font-weight: bold; font-family: inherit;
+      cursor: pointer; margin-bottom: 14px;
+    }
+
+    .day-card {
+      background: white; border-radius: 12px;
+      margin-bottom: 8px; overflow: hidden;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+      cursor: pointer; transition: transform 0.1s;
+    }
+    .day-card:active { transform: scale(0.99); }
+    .day-head {
+      padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .day-date { font-size: 14px; font-weight: bold; color: #1a2a1a; }
+    .day-date .weekday { font-size: 12px; color: #7a9a7a; margin-left: 4px; }
+    .day-right { text-align: right; }
+    .day-amount { font-size: 18px; font-weight: bold; color: #27ae60; }
+    .day-meta { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+    .day-detail {
+      display: none; padding: 0 16px 14px;
+      border-top: 1px solid #f0f5f0; margin-top: 0;
+    }
+    .day-detail.open { display: block; }
+    .detail-row {
+      display: flex; justify-content: space-between;
+      font-size: 13px; padding: 5px 0;
+      border-bottom: 1px solid #f5f5f5; color: #4a5a4a;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-row .label { color: #8a9a8a; }
+    .detail-memo { font-size: 12px; color: #7a8a7a; margin-top: 8px; background: #f8fdf9; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; }
+
+    .edit-link {
+      display: block; width: 100%; margin-top: 10px;
+      padding: 8px; text-align: center;
+      background: #f0faf4; color: #27ae60;
+      border-radius: 8px; font-size: 13px; font-weight: bold;
+      text-decoration: none;
+    }
+
+    .empty-state {
+      text-align: center; padding: 60px 20px; color: #bbb;
+    }
+    .empty-state .icon { font-size: 44px; margin-bottom: 12px; }
+    .empty-state p { font-size: 14px; }
+
+    .loading-state {
+      text-align: center; padding: 60px 20px; color: #bbb; font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <a href="index.html">←</a>
+    <h1>過去の記録</h1>
+  </div>
+
+  <div class="month-nav">
+    <button onclick="changeMonth(-1)">‹</button>
+    <div class="month-display" id="month-display"></div>
+    <button onclick="changeMonth(1)" id="btn-next">›</button>
+  </div>
+
+  <div class="content">
+    <div class="summary-card" id="summary-card" style="display:none">
+      <div class="s-label" id="s-label"></div>
+      <div class="s-amount"><span id="s-amount">0</span><span class="unit">円</span></div>
+      <div class="summary-sub">
+        <div class="s-item">
+          <div class="sv" id="s-days">0</div>
+          <div class="sl">記録日数</div>
+        </div>
+        <div class="s-item">
+          <div class="sv" id="s-customers">0</div>
+          <div class="sl">累計客数</div>
+        </div>
+        <div class="s-item">
+          <div class="sv" id="s-avg">—</div>
+          <div class="sl">平均客単価</div>
+        </div>
+      </div>
+      <div class="s-meta" id="s-meta"></div>
+    </div>
+
+    <button class="btn-csv" id="btn-csv" onclick="downloadCSV()" style="display:none">📥 この月のデータをCSVでダウンロード</button>
+
+    <div id="list"></div>
+  </div>
+
+  <script>
+    const { createClient } = supabase;
+    const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const dayNames = ['日','月','火','水','木','金','土'];
+    let currentYear, currentMonth;
+    let currentData = [];
+
+    function fmt(n) { return Number(n || 0).toLocaleString(); }
+
+    const now = new Date();
+    currentYear = now.getFullYear();
+    currentMonth = now.getMonth() + 1;
+
+    function updateMonthDisplay() {
+      document.getElementById('month-display').textContent = `${currentYear}年${currentMonth}月`;
+      const isCurrentMonth = currentYear === now.getFullYear() && currentMonth === now.getMonth() + 1;
+      document.getElementById('btn-next').disabled = isCurrentMonth;
+      document.getElementById('btn-next').style.opacity = isCurrentMonth ? '0.3' : '1';
+    }
+
+    function changeMonth(dir) {
+      currentMonth += dir;
+      if (currentMonth > 12) { currentMonth = 1; currentYear++; }
+      if (currentMonth < 1) { currentMonth = 12; currentYear--; }
+      updateMonthDisplay();
+      loadMonth();
+    }
+
+    async function loadMonth() {
+      const list = document.getElementById('list');
+      list.innerHTML = '<div class="loading-state">読み込み中...</div>';
+      document.getElementById('summary-card').style.display = 'none';
+      document.getElementById('btn-csv').style.display = 'none';
+
+      const monthStr = `${currentYear}-${String(currentMonth).padStart(2,'0')}`;
+      const start = `${monthStr}-01`;
+      const end = `${monthStr}-31`;
+
+      const { data, error } = await db.from('sales')
+        .select('*')
+        .eq('store_name', STORE_NAME)
+        .gte('sale_date', start)
+        .lte('sale_date', end)
+        .order('sale_date', { ascending: false });
+
+      if (error) {
+        list.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>読み込みに失敗しました</p></div>`;
+        return;
+      }
+
+      currentData = data || [];
+
+      if (currentData.length === 0) {
+        list.innerHTML = `<div class="empty-state"><div class="icon">📭</div><p>この月の記録はありません</p></div>`;
+        return;
+      }
+
+      // サマリー
+      const total = currentData.reduce((s, r) => s + (r.total_taxin || 0), 0);
+      const totalCust = currentData.reduce((s, r) => s + (r.customers || 0), 0);
+      const tax10 = currentData.reduce((s, r) => s + (r.sales_10 || 0), 0);
+      const tax8 = currentData.reduce((s, r) => s + (r.sales_8 || 0), 0);
+      const avg = totalCust > 0 ? Math.round(total / totalCust) : 0;
+
+      document.getElementById('s-label').textContent = `${currentYear}年${currentMonth}月 合計`;
+      document.getElementById('s-amount').textContent = fmt(total);
+      document.getElementById('s-days').textContent = `${currentData.length}日`;
+      document.getElementById('s-customers').textContent = `${totalCust}名`;
+      document.getElementById('s-avg').textContent = avg > 0 ? `¥${fmt(avg)}` : '—';
+      const taxInfo = (tax10 > 0 || tax8 > 0)
+        ? ` ／ 10%対象: ¥${fmt(tax10)} ／ 8%対象: ¥${fmt(tax8)}`
+        : '';
+      document.getElementById('s-meta').textContent = `消費税区分内訳${taxInfo || '（未入力）'}`;
+      document.getElementById('summary-card').style.display = 'block';
+      document.getElementById('btn-csv').style.display = 'block';
+
+      // リスト
+      list.innerHTML = '';
+      currentData.forEach(r => {
+        const d = new Date(r.sale_date + 'T00:00:00');
+        const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`;
+        const wday = dayNames[d.getDay()];
+        const card = document.createElement('div');
+        card.className = 'day-card';
+
+        const hasPayment = r.cash || r.card || r.qr;
+        const hasTax = r.sales_10 || r.sales_8;
+
+        let detailHTML = '';
+        if (hasPayment) {
+          detailHTML += `
+            <div class="detail-row"><span class="label">現金</span><span>¥${fmt(r.cash)}</span></div>
+            <div class="detail-row"><span class="label">カード</span><span>¥${fmt(r.card)}</span></div>
+            <div class="detail-row"><span class="label">QR/電子マネー</span><span>¥${fmt(r.qr)}</span></div>
+          `;
+        }
+        if (hasTax) {
+          detailHTML += `
+            <div class="detail-row"><span class="label">店内飲食（10%）</span><span>¥${fmt(r.sales_10)}</span></div>
+            <div class="detail-row"><span class="label">テイクアウト（8%）</span><span>¥${fmt(r.sales_8)}</span></div>
+          `;
+        }
+        if (r.memo) {
+          detailHTML += `<div class="detail-memo">${r.memo}</div>`;
+        }
+        if (!detailHTML) {
+          detailHTML = `<div style="font-size:12px;color:#bbb;padding:6px 0">詳細情報なし</div>`;
+        }
+
+        card.innerHTML = `
+          <div class="day-head" onclick="toggleDetail(this)">
+            <div class="day-date">${dateStr} <span class="weekday">（${wday}）</span></div>
+            <div class="day-right">
+              <div class="day-amount">¥${fmt(r.total_taxin)}</div>
+              <div class="day-meta">${r.customers ? `${r.customers}名` : ''}</div>
+            </div>
+          </div>
+          <div class="day-detail">
+            ${detailHTML}
+            <a class="edit-link" href="input.html?date=${r.sale_date}">編集する</a>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    function toggleDetail(headEl) {
+      const detail = headEl.parentElement.querySelector('.day-detail');
+      detail.classList.toggle('open');
+    }
+
+    function downloadCSV() {
+      if (!currentData.length) return;
+
+      const headers = ['日付', '売上合計(税込)', '現金', 'カード', 'QR/電子マネー', '10%対象', '8%対象', '客数', 'メモ'];
+      const rows = currentData.map(r => [
+        r.sale_date,
+        r.total_taxin || 0,
+        r.cash || 0,
+        r.card || 0,
+        r.qr || 0,
+        r.sales_10 || 0,
+        r.sales_8 || 0,
+        r.customers || 0,
+        `"${(r.memo || '').replace(/"/g, '""')}"`
+      ]);
+
+      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const bom = '﻿';
+      const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `売上_${currentYear}年${currentMonth}月_${STORE_NAME}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    updateMonthDisplay();
+    loadMonth();
+
+    // input.htmlからの日付パラメータ対応
+    const params = new URLSearchParams(location.search);
+    if (params.get('y') || params.get('m')) {
+      currentYear = parseInt(params.get('y')) || currentYear;
+      currentMonth = parseInt(params.get('m')) || currentMonth;
+      updateMonthDisplay();
+    }
+  </script>
+</body>
+</html>
